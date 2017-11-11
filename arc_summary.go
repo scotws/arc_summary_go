@@ -32,6 +32,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"sort"
 	"strings"
@@ -50,7 +51,7 @@ var (
 	printDesc     = flag.Bool("d", false, "Include descriptions of tunables")
 	printRaw      = flag.Bool("r", false, "Print raw (but sorted) data")
 	printGraphic  = flag.Bool("g", false, "Print basic information as graphic")
-	showPage      = flag.String("p", "", "Pick one subject (arc, dmu, l2arc, vdev, xuio, zfetch, zil, tunable)")
+	showSection   = flag.String("s", "", "Pick one section (arc, dmu, l2arc, tunables, vdev, xuio, zfetch, zil)")
 
 	procPaths []string
 
@@ -67,6 +68,68 @@ var (
 		"zil":    procPath + "zil",
 	}
 )
+
+// formatBytes creates a human-readable version of the number of bytes in SI
+// units. This works for 64 bit values (16 EiB)
+func formatBytes(b uint64) string {
+
+	units := []string{"Bytes", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"}
+
+	var limit, value float64
+	var unit string
+
+	if b < 1024 {
+		return fmt.Sprintf("%d Bytes", b)
+	}
+
+	fbytes := float64(b)
+
+	for i := len(units) - 1; i > 0; i-- {
+
+		limit = math.Pow(float64(2), float64(i*10))
+
+		if fbytes >= limit {
+			value = fbytes / limit
+			unit = units[i]
+			break
+		}
+	}
+	return fmt.Sprintf("%0.1f %s", value, unit)
+}
+
+// formatHits returns a human-readable version of the number of hits with SI
+// units to describe the size. This works up to a 64 bit number (18.4 EB for
+// unsigned int64); see
+// https://blogs.oracle.com/bonwick/you-say-zeta,-i-say-zetta for details
+func formatHits(hits uint64) string {
+
+	units := []string{" ", "k", "M", "G", "T", "P", "E"}
+
+	var limit, value float64
+	var unit string
+
+	// Keep this separate so we give back smaller numbers of hits without
+	// decimal points
+	if hits < 1000 {
+		return fmt.Sprintf("%d", hits)
+	}
+
+	fhits := float64(hits)
+
+	// TODO test with i > 1
+	for i := len(units) - 1; i > 0; i-- {
+
+		limit = math.Pow10(i * 3)
+
+		if fhits >= limit {
+			value = fhits / limit
+			unit = units[i]
+			break
+		}
+	}
+
+	return fmt.Sprintf("%0.1f%s", value, unit)
+}
 
 // getKstats collects information on the ZFS subsystem from the /proc virtual
 // file system. Fun fact: The name "kstat" is a holdover from the Solaris utility
