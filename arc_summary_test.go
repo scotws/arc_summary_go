@@ -1,7 +1,7 @@
 // Test file for arc_summary.go
 // Scot W. Stevenson
 // First version: 11. Nov 2017
-// This version: 11. Nov 2017
+// This version: 12. Nov 2017
 package main
 
 import (
@@ -15,13 +15,13 @@ func f2s(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
-func TestFormatHits(t *testing.T) {
+func TestFHits(t *testing.T) {
 	var tests = []struct {
 		have string
 		want string
 	}{
-		{"0", "0"},
-		{"64", "64"},
+		{"0", "0    "}, // spaces for alignment of output
+		{"64", "64    "},
 		{"1000", "1.0k"},
 		{"1001", "1.0k"},
 		{"2101", "2.1k"},
@@ -40,14 +40,14 @@ func TestFormatHits(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		got := formatHits(test.have)
+		got := fHits(test.have)
 		if got != test.want {
-			t.Errorf("formatHits(%s) = %v (wanted \"%v\")", test.have, got, test.want)
+			t.Errorf("fHits(%s) = %v (wanted \"%v\")", test.have, got, test.want)
 		}
 	}
 }
 
-func TestFormatBytes(t *testing.T) {
+func TestFBytes(t *testing.T) {
 	var tests = []struct {
 		have string
 		want string
@@ -70,9 +70,9 @@ func TestFormatBytes(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		got := formatBytes(test.have)
+		got := fBytes(test.have)
 		if got != test.want {
-			t.Errorf("formatBytes(%d) = %v (wanted \"%v\")", test.have, got, test.want)
+			t.Errorf("fBytes(%d) = %v (wanted \"%v\")", test.have, got, test.want)
 		}
 	}
 }

@@ -65,7 +65,11 @@ var (
 	kstats       = make(map[string][]string)
 	tunables     = make(map[string]string)
 	tunableDescs = make(map[string]string)
-	arcStats     = make(map[string]string)
+
+	// Use this as stats for stats
+	allStats = make(map[string]map[string]string)
+
+	arcStats = make(map[string]string) // TODO temporary
 
 	// These are also the short inputs for the -s flag, in addition to "tunables"
 	// and "l2arc" (part of arcstats)
@@ -88,10 +92,10 @@ func cleanLine(s string) (string, string) {
 	return strings.TrimSpace(fields[0]), strings.TrimSpace(fields[2])
 }
 
-// formatBytes creates a human-readable version of the number of bytes in SI
+// fBytes creates a human-readable version of the number of bytes in SI
 // units. This works for 64 bit values (16 EiB); for details see
 // https://blogs.oracle.com/bonwick/you-say-zeta,-i-say-zetta
-func formatBytes(s string) string {
+func fBytes(s string) string {
 
 	// First element "Bytes" is dummy value to aid indexing
 	units := []string{"Bytes", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"}
@@ -122,10 +126,10 @@ func formatBytes(s string) string {
 	return result
 }
 
-// formatHits returns a human-readable version of the number of hits with SI
+// fHits returns a human-readable version of the number of hits with SI
 // units to describe the size. This works up to a 64 bit number (18.4 EB for
 // unsigned int64)
-func formatHits(s string) string {
+func fHits(s string) string {
 
 	// First element " " is dummy value to aid indexing
 	units := []string{" ", "k", "M", "G", "T", "P", "E"}
@@ -333,22 +337,41 @@ func printRawData() {
 	}
 }
 
+// prtL* are formatting functions to print formatted output. All of these assume
+// a width of 72 characters for the output
+
+// prtL1 prints primary level format without percentage
+func prtL1(msg, value string) {
+	var l1 = "\n%-61s%11s\n"
+	fmt.Printf(l1, msg, value)
+}
+
+// prtL2 prints secondary level format without percentage
+func prtL2(msg, value string) {
+	var l2 = indent + "%-53s%11s\n"
+	fmt.Printf(l2, msg, value)
+}
+
+// prtL1p prints first level format with percentage
+func prtL1p(msg, perc, value string) {
+	var l1p = "\n%-55s%6s%11s\n"
+	fmt.Printf(l1p, msg, perc, value)
+}
+
+// prtL2p prints second level format with percentage
+func prtL2p(msg, perc, value string) {
+	var l2p = indent + "%-47s%6s%11s\n"
+	fmt.Printf(l2p, msg, perc, value)
+}
+
 // printSectionARC displays formatted information on the most important ARC
 // parameters in human-readable format. This excludes the L2ARC, which is
 // printed in its own section. The layout follows the original arc_summary.py to
 // make switching easier.
 func printSectionARC() {
 
-	// These assume a line width of 72
-	// TODO generalize formatting
-	var (
-		l1  = "\n%-61s%11s\n"           // primary level format without percentages
-		l1p = "\n%-55s%6s%11s\n"        // primary level format with percentages
-		l2p = indent + "%-47s%6s%11s\n" // secondary format with percentages
-		l2  = indent + "%-53s%11s\n"    // secondary format without percentages
-	)
-
 	procSection("arcstats", arcStats)
+	allStats["arcstats"] = arcStats
 
 	throttle := arcStats["memory_throttle_count"]
 	health := "HEALTHY"
@@ -357,18 +380,18 @@ func printSectionARC() {
 		health = "THROTTLED"
 	}
 
-	fmt.Printf(l1, "ARC summary:", health)
-	fmt.Printf(l2, "Memory throttle count:", formatHits(throttle))
+	prtL1("ARC summary:", health)
+	prtL2("Memory throttle count:", fHits(throttle))
 
-	arcSize := formatBytes(arcStats["size"])
+	arcSize := fBytes(arcStats["size"])
 	arcPerc := formatPerc(arcStats["size"], arcStats["c_max"])
-	fmt.Printf(l1p, "ARC size:", arcPerc, arcSize)
-	fmt.Printf(l2p, "Target size (adaptive):", "FEHLT", formatBytes(arcStats["c"]))
+	prtL1p("ARC size:", arcPerc, arcSize)
+	prtL2p("Target size (adaptive):", "FEHLT", fBytes(arcStats["c"]))
 
 	maxSize := arcStats["c_max"]
 	minSize := arcStats["c_min"]
-	fmt.Printf(l2p, "Min size (hard limit):", "FEHLT", formatBytes(minSize))
-	fmt.Printf(l2p, "Max size (high water):", "FEHLT", formatBytes(maxSize))
+	prtL2p("Min size (hard limit):", "FEHLT", fBytes(minSize))
+	prtL2p("Max size (high water):", "FEHLT", fBytes(maxSize))
 
 	fmt.Println("\nARC size breakdown:")
 	mfuSize := arcStats["mfu_size"]
@@ -377,8 +400,8 @@ func printSectionARC() {
 	cacheTotalString := strconv.FormatUint(cacheTotal, 10)
 	mfuPerc := formatPerc(mfuSize, cacheTotalString)
 	mruPerc := formatPerc(mruSize, cacheTotalString)
-	fmt.Printf(l2p, "Most Frequently Used (MFU) cache size:", mfuPerc, formatBytes(mfuSize))
-	fmt.Printf(l2p, "Most Recently Used (MRU) cache size:", mruPerc, formatBytes(mruSize))
+	prtL2p("Most Frequently Used (MFU) cache size:", mfuPerc, fBytes(mfuSize))
+	prtL2p("Most Recently Used (MRU) cache size:", mruPerc, fBytes(mruSize))
 
 }
 
@@ -435,7 +458,7 @@ func procSection(s string, m map[string]string) {
 }
 
 // stringToUint64 takes a string with a number and converts it to feed into one
-// of the conversion processes for formatBytes or formatHints
+// of the conversion processes for ftBytes or formatHints
 // TODO figure out a sane way to deal with an error
 func stringToUint64(s string) uint64 {
 
@@ -492,5 +515,5 @@ func main() {
 		os.Exit(0)
 	}
 
-	// TODO if no parameter given, just print everything except the graphic
+	// If no parameter given, just print everything except the graphic
 }
