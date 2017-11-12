@@ -43,11 +43,11 @@ import (
 )
 
 const (
-	lineLen      = 72
 	procPath     = "/proc/spl/kstat/zfs/"
 	tunablesPath = "/sys/module/zfs/parameters"
 	dateFormat   = "Mon Jan 1 03:04:00 2006"
 	indent       = "\t"
+	lineLen      = 72
 )
 
 var (
@@ -71,8 +71,6 @@ var (
 
 	arcStats = make(map[string]string) // TODO temporary
 
-	// These are also the short inputs for the -s flag, in addition to "tunables"
-	// and "l2arc" (part of arcstats)
 	sectionPaths = map[string]string{
 		"arc":    "arcstats",
 		"dmu":    "dmu_tx",
@@ -81,13 +79,24 @@ var (
 		"zfetch": "zfetchstats",
 		"zil":    "zil",
 	}
+
+	sectionCalls = map[string]func(){
+		"arc":      printARC,
+		"dmu":      printDMU,
+		"l2arc":    printL2ARC,
+		"tunables": printTunables,
+		"vdev":     printVDEV,
+		"xuio":     printXuio,
+		"zfetch":   printZfetch,
+		"zil":      printZIL,
+	}
 )
 
-// cleanLine takes a raw line of the data from /proc and isolates the name and
+// cleanProcLine takes a raw line of the data from /proc and isolates the name and
 // value contained, eg "arc_no_grow   4    0" The "4" in the middle is the type
 // factor that can be ignored
 // TODO deal with errors
-func cleanLine(s string) (string, string) {
+func cleanProcLine(s string) (string, string) {
 	fields := strings.Fields(s)
 	return strings.TrimSpace(fields[0]), strings.TrimSpace(fields[2])
 }
@@ -331,7 +340,7 @@ func printRawData() {
 		fmt.Printf("\n%s:\n", strings.ToUpper(p))
 
 		for _, l := range kstats[p] {
-			name, value := cleanLine(l)
+			name, value := cleanProcLine(l)
 			fmt.Printf("\t%-50s%s\n", name, value)
 		}
 	}
@@ -364,11 +373,11 @@ func prtL2p(msg, perc, value string) {
 	fmt.Printf(l2p, msg, perc, value)
 }
 
-// printSectionARC displays formatted information on the most important ARC
+// printARC displays formatted information on the most important ARC
 // parameters in human-readable format. This excludes the L2ARC, which is
 // printed in its own section. The layout follows the original arc_summary.py to
 // make switching easier.
-func printSectionARC() {
+func printARC() {
 
 	procSection("arcstats", arcStats)
 	allStats["arcstats"] = arcStats
@@ -403,6 +412,17 @@ func printSectionARC() {
 	prtL2p("Most Frequently Used (MFU) cache size:", mfuPerc, fBytes(mfuSize))
 	prtL2p("Most Recently Used (MRU) cache size:", mruPerc, fBytes(mruSize))
 
+}
+
+// printDMU displays the statistics related to the DMU
+func printDMU() {
+	fmt.Println("TODO Print DMU statistics")
+}
+
+// printL2ARC displays the statistics related to the L2ARC if one is
+// installed
+func printL2ARC() {
+	fmt.Println("TODO Print L2ARC statistics")
 }
 
 // printTunables displays a list of tunables with the option of adding the
@@ -441,6 +461,26 @@ func printTunables() {
 
 }
 
+// printVDEV displays the statistics related to the Virtual Devices
+func printVDEV() {
+	fmt.Println("TODO Print VDEV statistics")
+}
+
+// printXuio displays the statistics related to the Virtual Devices
+func printXuio() {
+	fmt.Println("TODO Print Xuio statistics")
+}
+
+// printZfetch displays the statistics related to zfetch
+func printZfetch() {
+	fmt.Println("TODO Print zfetch stuff")
+}
+
+// printZIL displays the statistics related to the ZIL
+func printZIL() {
+	fmt.Println("TODO Print ZIL stuff")
+}
+
 // procSection splits up the statistics on a given section which are first
 // only bundled up in kstats. This gives us the option to only sort the
 // individual statistics when we actually need them
@@ -452,14 +492,13 @@ func procSection(s string, m map[string]string) {
 	}
 
 	for _, l := range arcstats {
-		name, value := cleanLine(l)
+		name, value := cleanProcLine(l)
 		m[name] = value
 	}
 }
 
 // stringToUint64 takes a string with a number and converts it to feed into one
 // of the conversion processes for ftBytes or formatHints
-// TODO figure out a sane way to deal with an error
 func stringToUint64(s string) uint64 {
 
 	i, err := strconv.ParseUint(s, 0, 64)
@@ -475,9 +514,6 @@ func main() {
 	flag.Parse()
 	getKstats(kstats)
 	printHeader()
-
-	// TODO TEST
-	printSectionARC()
 
 	if *OptPrintGraphic {
 		printGraphic()
@@ -497,23 +533,15 @@ func main() {
 			log.Fatal("Can't print unknown section '", *OptPrintSection, "'")
 		}
 
-		fmt.Printf("\n%s:\n", strings.ToUpper(*OptPrintSection))
-
-		// Section TUNABLES is a special case because the data has to be read
-		// from a completely different source
-		if *OptPrintSection == "tunables" {
-			printTunables()
-			os.Exit(0)
-		}
-
-		// Section L2ARC is a special case because the data is mixed up
-		// in the section on ARC
-		// TODO special case l2arc
-
-		// TODO Other sections
-
+		fmt.Printf("\n--- %s ---\n", strings.ToUpper(*OptPrintSection))
+		sectionCalls[*OptPrintSection]()
 		os.Exit(0)
 	}
 
 	// If no parameter given, just print everything except the graphic
+	for _, s := range sections {
+		fmt.Printf("\n--- %s ---\n", strings.ToUpper(s))
+		sectionCalls[s]()
+	}
+	os.Exit(0)
 }
