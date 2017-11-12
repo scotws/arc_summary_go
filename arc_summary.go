@@ -37,6 +37,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -46,6 +47,7 @@ const (
 	procPath     = "/proc/spl/kstat/zfs/"
 	tunablesPath = "/sys/module/zfs/parameters"
 	dateFormat   = "Mon Jan 1 03:04:00 2006"
+	indent       = "\t"
 )
 
 var (
@@ -63,29 +65,41 @@ var (
 	kstats       = make(map[string][]string)
 	tunables     = make(map[string]string)
 	tunableDescs = make(map[string]string)
+	arcStats     = make(map[string]string)
 
 	// These are also the short inputs for the -s flag, in addition to "tunables"
 	// and "l2arc" (part of arcstats)
 	sectionPaths = map[string]string{
-		"arc":    procPath + "arcstats",
-		"dmu":    procPath + "dmu_tx",
-		"vdev":   procPath + "vdev_cache_stats",
-		"xuio":   procPath + "xuio_stats",
-		"zfetch": procPath + "zfetchstats",
-		"zil":    procPath + "zil",
+		"arc":    "arcstats",
+		"dmu":    "dmu_tx",
+		"vdev":   "vdev_cache_stats",
+		"xuio":   "xuio_stats",
+		"zfetch": "zfetchstats",
+		"zil":    "zil",
 	}
 )
+
+// cleanLine takes a raw line of the data from /proc and isolates the name and
+// value contained, eg "arc_no_grow   4    0" The "4" in the middle is the type
+// factor that can be ignored
+// TODO deal with errors
+func cleanLine(s string) (string, string) {
+	fields := strings.Fields(s)
+	return strings.TrimSpace(fields[0]), strings.TrimSpace(fields[2])
+}
 
 // formatBytes creates a human-readable version of the number of bytes in SI
 // units. This works for 64 bit values (16 EiB); for details see
 // https://blogs.oracle.com/bonwick/you-say-zeta,-i-say-zetta
-func formatBytes(b uint64) string {
+func formatBytes(s string) string {
 
 	// First element "Bytes" is dummy value to aid indexing
 	units := []string{"Bytes", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"}
 
 	var limit, value float64
 	var result, unit string
+
+	b := stringToUint64(s)
 
 	// Keep this separate so we can return small byte values without decimal
 	// points
@@ -111,7 +125,7 @@ func formatBytes(b uint64) string {
 // formatHits returns a human-readable version of the number of hits with SI
 // units to describe the size. This works up to a 64 bit number (18.4 EB for
 // unsigned int64)
-func formatHits(hits uint64) string {
+func formatHits(s string) string {
 
 	// First element " " is dummy value to aid indexing
 	units := []string{" ", "k", "M", "G", "T", "P", "E"}
@@ -119,10 +133,12 @@ func formatHits(hits uint64) string {
 	var limit, value float64
 	var result, unit string
 
+	hits := stringToUint64(s)
+
 	// Keep this separate so we give back smaller numbers of hits without
-	// decimal points
+	// decimal points. Leave spaces to align with unit output
 	if hits < 1000 {
-		result = fmt.Sprintf("%d", hits)
+		result = fmt.Sprintf("%d    ", hits)
 	} else {
 		fhits := float64(hits)
 
@@ -140,6 +156,27 @@ func formatHits(hits uint64) string {
 	return result
 }
 
+// formatPerc calculates a precentage and returns the number in a human-readable
+// format.
+func formatPerc(upper, lower string) string {
+
+	u, err := strconv.ParseFloat(upper, 64)
+	if err != nil {
+		log.Fatal("Error converting string ", upper, "to float")
+	}
+
+	l, err := strconv.ParseFloat(lower, 64)
+	if err != nil {
+		log.Fatal("Error converting string ", lower, "to float")
+	}
+
+	if l < 0 {
+		log.Fatal("Division by zero error calculating percentages ", upper, " / ", lower)
+	}
+
+	return fmt.Sprintf("%0.1f %%", (100 * u / l))
+}
+
 // getKstats collects information on the ZFS subsystem from the /proc virtual
 // file system. Fun fact: The name "kstat" is a holdover from the Solaris utility
 // of the same name
@@ -147,10 +184,12 @@ func getKstats(m map[string][]string) {
 
 	for _, s := range sectionPaths {
 
-		f, err := os.Open(s)
+		fullPath := procPath + s
+
+		f, err := os.Open(fullPath)
 
 		if err != nil {
-			log.Fatal("Could not open ", s, " for reading")
+			log.Fatal("Could not open ", fullPath, " for reading")
 		}
 		defer f.Close()
 
@@ -161,10 +200,15 @@ func getKstats(m map[string][]string) {
 			parameters = append(parameters, input.Text())
 		}
 
+		// We use a short version of the section path as the key, eg
+		// "arcstats" instead of "/proc/spl/kstat/zfs/arcstats"
+		w := strings.Split(s, "/")
+		key := w[len(w)-1]
+
 		// The first two lines of output are header stuff we don't need
 		parameters = parameters[2:len(parameters)]
 		sort.Strings(parameters)
-		m[s] = parameters
+		m[key] = parameters
 	}
 }
 
@@ -214,39 +258,52 @@ func getTunableDesc(keys []string, m map[string]string) {
 		l = strings.TrimSpace(l[5:len(l)])
 		descs := strings.Split(l, ":")
 
+		key := strings.TrimSpace(descs[0])
+
 		if len(descs) < 2 {
-			m[descs[0]] = "(No description available)"
+			m[key] = "(No description available)"
 			continue
 		}
 
-		key := strings.TrimSpace(descs[0])
-		description := strings.TrimSpace(descs[1])
+		// Drop useless information on internal format (eg "uint")
+		description := strings.Split(descs[1], "(")
 
-		m[key] = description
+		m[key] = strings.TrimSpace(description[0])
 	}
 }
 
 // isLegalSection tests to see if string is a legal sections name
 func isLegalSection(sec string) bool {
 	result := false
-
 	for _, s := range sections {
-
 		if sec == s {
 			result = true
 		}
 	}
-
 	return result
 }
 
 // printGraphic prints a small graphic respresentation of the most important ARC
 // data and then quits
 func printGraphic() {
+
+	const (
+		width     = 66
+		height    = 1
+		indent    = "    "
+		topString = "ARC: %s (%s) MFU: %s (%s) MRU: %s (%s)"
+	)
+
+	var line = indent + "+" + strings.Repeat("-", width-2) + "+"
+
+	procSection("arcstats", arcStats)
+
+	fmt.Println(line)
 	fmt.Println("TODO print graphic")
+	fmt.Println(line)
 }
 
-// printHeader prints a title strings with the date
+// printHeader prints the title with the date and time
 func printHeader() {
 	line := strings.Repeat("-", lineLen)
 	t := time.Now()
@@ -267,12 +324,62 @@ func printRawData() {
 	sort.Strings(paths)
 
 	for _, p := range paths {
-		fmt.Printf("\n%s:\n", p)
+		fmt.Printf("\n%s:\n", strings.ToUpper(p))
 
 		for _, l := range kstats[p] {
-			fmt.Printf("\t%s\n", l)
+			name, value := cleanLine(l)
+			fmt.Printf("\t%-50s%s\n", name, value)
 		}
 	}
+}
+
+// printSectionARC displays formatted information on the most important ARC
+// parameters in human-readable format. This excludes the L2ARC, which is
+// printed in its own section. The layout follows the original arc_summary.py to
+// make switching easier.
+func printSectionARC() {
+
+	// These assume a line width of 72
+	// TODO generalize formatting
+	var (
+		l1  = "\n%-61s%11s\n"           // primary level format without percentages
+		l1p = "\n%-55s%6s%11s\n"        // primary level format with percentages
+		l2p = indent + "%-47s%6s%11s\n" // secondary format with percentages
+		l2  = indent + "%-53s%11s\n"    // secondary format without percentages
+	)
+
+	procSection("arcstats", arcStats)
+
+	throttle := arcStats["memory_throttle_count"]
+	health := "HEALTHY"
+
+	if throttle != "0" {
+		health = "THROTTLED"
+	}
+
+	fmt.Printf(l1, "ARC summary:", health)
+	fmt.Printf(l2, "Memory throttle count:", formatHits(throttle))
+
+	arcSize := formatBytes(arcStats["size"])
+	arcPerc := formatPerc(arcStats["size"], arcStats["c_max"])
+	fmt.Printf(l1p, "ARC size:", arcPerc, arcSize)
+	fmt.Printf(l2p, "Target size (adaptive):", "FEHLT", formatBytes(arcStats["c"]))
+
+	maxSize := arcStats["c_max"]
+	minSize := arcStats["c_min"]
+	fmt.Printf(l2p, "Min size (hard limit):", "FEHLT", formatBytes(minSize))
+	fmt.Printf(l2p, "Max size (high water):", "FEHLT", formatBytes(maxSize))
+
+	fmt.Println("\nARC size breakdown:")
+	mfuSize := arcStats["mfu_size"]
+	mruSize := arcStats["mru_size"]
+	cacheTotal := stringToUint64(mfuSize) + stringToUint64(mruSize)
+	cacheTotalString := strconv.FormatUint(cacheTotal, 10)
+	mfuPerc := formatPerc(mfuSize, cacheTotalString)
+	mruPerc := formatPerc(mruSize, cacheTotalString)
+	fmt.Printf(l2p, "Most Frequently Used (MFU) cache size:", mfuPerc, formatBytes(mfuSize))
+	fmt.Printf(l2p, "Most Recently Used (MRU) cache size:", mruPerc, formatBytes(mruSize))
+
 }
 
 // printTunables displays a list of tunables with the option of adding the
@@ -311,11 +418,43 @@ func printTunables() {
 
 }
 
+// procSection splits up the statistics on a given section which are first
+// only bundled up in kstats. This gives us the option to only sort the
+// individual statistics when we actually need them
+func procSection(s string, m map[string]string) {
+
+	arcstats, ok := kstats[s]
+	if !ok {
+		log.Fatal("Internal error: Can't access data on section", s)
+	}
+
+	for _, l := range arcstats {
+		name, value := cleanLine(l)
+		m[name] = value
+	}
+}
+
+// stringToUint64 takes a string with a number and converts it to feed into one
+// of the conversion processes for formatBytes or formatHints
+// TODO figure out a sane way to deal with an error
+func stringToUint64(s string) uint64 {
+
+	i, err := strconv.ParseUint(s, 0, 64)
+	if err != nil {
+		log.Fatal("Error converting ", s, " to uint64: ", err)
+	}
+
+	return uint64(i)
+}
+
 func main() {
 
 	flag.Parse()
 	getKstats(kstats)
 	printHeader()
+
+	// TODO TEST
+	printSectionARC()
 
 	if *OptPrintGraphic {
 		printGraphic()
@@ -323,9 +462,8 @@ func main() {
 	}
 
 	if *OptPrintRaw {
-		fmt.Println("\nPrinting RAW DATA:")
 		printRawData()
-		fmt.Println("\nTunables:")
+		fmt.Println("\nTUNABLES:")
 		printTunables()
 		os.Exit(0)
 	}
@@ -338,11 +476,21 @@ func main() {
 
 		fmt.Printf("\n%s:\n", strings.ToUpper(*OptPrintSection))
 
+		// Section TUNABLES is a special case because the data has to be read
+		// from a completely different source
 		if *OptPrintSection == "tunables" {
 			printTunables()
 			os.Exit(0)
 		}
 
+		// Section L2ARC is a special case because the data is mixed up
+		// in the section on ARC
+		// TODO special case l2arc
+
+		// TODO Other sections
+
 		os.Exit(0)
 	}
+
+	// TODO if no parameter given, just print everything except the graphic
 }
