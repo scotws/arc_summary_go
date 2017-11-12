@@ -72,3 +72,29 @@ func TestFormatBytes(t *testing.T) {
 		}
 	}
 }
+
+func TestIsLegalSection(t *testing.T) {
+	var tests = []struct {
+		have string
+		want bool
+	}{
+		{"arc", true},
+		{"dmu", true},
+		{"l2arc", true},
+		{"tunables", true},
+		{"vdev", true},
+		{"xuio", true},
+		{"zfetch", true},
+		{"zil", true},
+
+		{"ZFS", false},
+		{"So say we all", false},
+	}
+
+	for _, test := range tests {
+		got := isLegalSection(test.have)
+		if got != test.want {
+			t.Errorf("isLegalSection(%s) = %v (wanted \"%v\")", test.have, got, test.want)
+		}
+	}
+}
