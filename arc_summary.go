@@ -66,11 +66,6 @@ var (
 	tunables     = make(map[string]string)
 	tunableDescs = make(map[string]string)
 
-	// Use this as stats for stats
-	allStats = make(map[string]map[string]string)
-
-	arcStats = make(map[string]string) // TODO temporary
-
 	sectionPaths = map[string]string{
 		"arc":    "arcstats",
 		"dmu":    "dmu_tx",
@@ -278,10 +273,17 @@ func getTunableDesc(keys []string, m map[string]string) {
 			continue
 		}
 
-		// Drop useless information on internal format (eg "uint")
-		description := strings.Split(descs[1], "(")
+		// Drop useless information on internal format (eg "(uint)"). Some
+		// of the descriptions have comments within paras so we can't
+		// just split on "("
+		description := descs[1]
+		idx := strings.LastIndex(description, "(")
 
-		m[key] = strings.TrimSpace(description[0])
+		if idx != -1 {
+			description = description[0:idx]
+		}
+
+		m[key] = strings.TrimSpace(description)
 	}
 }
 
@@ -308,6 +310,7 @@ func printGraphic() {
 	)
 
 	var line = indent + "+" + strings.Repeat("-", width-2) + "+"
+	var arcStats = make(map[string]string)
 
 	procSection("arcstats", arcStats)
 
@@ -379,8 +382,8 @@ func prtL2p(msg, perc, value string) {
 // make switching easier.
 func printARC() {
 
+	var arcStats = make(map[string]string)
 	procSection("arcstats", arcStats)
-	allStats["arcstats"] = arcStats
 
 	throttle := arcStats["memory_throttle_count"]
 	health := "HEALTHY"
