@@ -164,9 +164,10 @@ func fHits(s string) string {
 	return result
 }
 
-// formatPerc calculates a precentage and returns the number in a human-readable
-// format.
-func formatPerc(upper, lower string) string {
+// fPerc calculates a precentage and returns the number in a human-readable
+// format. If percentage cannot be calculated (because of a zero in the lower
+// value) a blank string is returned)
+func fPerc(upper, lower string) string {
 
 	u, err := strconv.ParseFloat(upper, 64)
 	if err != nil {
@@ -178,11 +179,13 @@ func formatPerc(upper, lower string) string {
 		log.Fatal("Error converting string ", lower, "to float")
 	}
 
-	if l < 0 {
-		log.Fatal("Division by zero error calculating percentages ", upper, " / ", lower)
+	result := " "
+
+	if l > 0 {
+		result = fmt.Sprintf("%0.1f %%", (100 * u / l))
 	}
 
-	return fmt.Sprintf("%0.1f %%", (100 * u / l))
+	return result
 }
 
 // getKstats collects information on the ZFS subsystem from the /proc virtual
@@ -221,7 +224,7 @@ func getKstats(m map[string][]string) {
 }
 
 // getTunables collects information on the tunable parameters of the ZFS
-// subsystem and returns a string list
+// subsystem and returns a string list.
 func getTunables(m map[string]string) {
 
 	var paraNames []string
@@ -245,7 +248,9 @@ func getTunables(m map[string]string) {
 	}
 }
 
-// Get the description of each tunable parameter and format it
+// Get the description of each tunable parameter and format it. For more
+// information on what each parameter does on a Linux system, see
+// "man 5 zfs-module-parameters"
 func getTunableDesc(keys []string, m map[string]string) {
 
 	cmd := exec.Command("/sbin/modinfo", "zfs", "-0")
@@ -396,7 +401,7 @@ func printARC() {
 	prtL2("Memory throttle count:", fHits(throttle))
 
 	arcSize := fBytes(arcStats["size"])
-	arcPerc := formatPerc(arcStats["size"], arcStats["c_max"])
+	arcPerc := fPerc(arcStats["size"], arcStats["c_max"])
 	prtL1p("ARC size:", arcPerc, arcSize)
 	prtL2p("Target size (adaptive):", "FEHLT", fBytes(arcStats["c"]))
 
@@ -410,16 +415,24 @@ func printARC() {
 	mruSize := arcStats["mru_size"]
 	cacheTotal := stringToUint64(mfuSize) + stringToUint64(mruSize)
 	cacheTotalString := strconv.FormatUint(cacheTotal, 10)
-	mfuPerc := formatPerc(mfuSize, cacheTotalString)
-	mruPerc := formatPerc(mruSize, cacheTotalString)
+	mfuPerc := fPerc(mfuSize, cacheTotalString)
+	mruPerc := fPerc(mruSize, cacheTotalString)
 	prtL2p("Most Frequently Used (MFU) cache size:", mfuPerc, fBytes(mfuSize))
 	prtL2p("Most Recently Used (MRU) cache size:", mruPerc, fBytes(mruSize))
 
 }
 
 // printDMU displays the statistics related to the DMU
+// TODO - figure out some of these statistics are from ZFETCH
 func printDMU() {
+
+	var dmuStats = make(map[string]string)
+	procSection("dmu_tx", dmuStats)
+
+	dmuEfficiency := dmuStats["efficiency"]
+
 	fmt.Println("TODO Print DMU statistics")
+	fmt.Println("TEST (efficiency)", dmuEfficiency)
 }
 
 // printL2ARC displays the statistics related to the L2ARC if one is
@@ -464,9 +477,26 @@ func printTunables() {
 
 }
 
-// printVDEV displays the statistics related to the Virtual Devices
+// printVDEV displays statistics related to the Virtual Devices
 func printVDEV() {
-	fmt.Println("TODO Print VDEV statistics")
+	var vdevStats = make(map[string]string)
+	procSection("vdev_cache_stats", vdevStats)
+
+	delegations := vdevStats["delegations"]
+	misses := vdevStats["misses"]
+	hits := vdevStats["hits"]
+
+	t := stringToUint64(delegations) + stringToUint64(misses) + stringToUint64(hits)
+	total := strconv.FormatUint(t, 10)
+
+	hitRatio := fPerc(hits, total)
+	missRatio := fPerc(misses, total)
+	delegationsRatio := fPerc(delegations, total)
+
+	prtL1("VDEV summary: ", " ") // Could list total here as "events"
+	prtL2p("Cache hits:", hitRatio, fHits(hits))
+	prtL2p("Cache misses:", missRatio, fHits(hits))
+	prtL2p("Cache delegations:", delegationsRatio, fHits(hits))
 }
 
 // printXuio displays the statistics related to the Virtual Devices
