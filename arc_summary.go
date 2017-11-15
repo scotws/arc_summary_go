@@ -4,6 +4,8 @@
 // Based on arc_summary.py by Ben Rockwood, Martin Matushka, Jason Hellenthal
 // and others. Number of hits and byte sizes limited to 64 bit (float64/uint64)
 //
+// 	*** THIS CODE IS CURRENTLY INCOMPLETE ***
+//
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions
 // are met:
@@ -309,7 +311,7 @@ func printGraphic() {
 
 	const (
 		graphIndent = "      "
-		graphWidth  = 70
+		graphWidth  = 70 // may not be smaller then length of status line // may not be smaller then length of status line
 		graphNote   = "('F': MFU size  'R': MRU size  'O': Other)\n\n"
 	)
 
