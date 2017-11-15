@@ -224,7 +224,7 @@ func getKstats(m map[string][]string) {
 }
 
 // getTunables collects information on the tunable parameters of the ZFS
-// subsystem and returns a string list.
+// subsystem and returns them in a map
 func getTunables(m map[string]string) {
 
 	var paraNames []string
@@ -308,20 +308,51 @@ func isLegalSection(sec string) bool {
 func printGraphic() {
 
 	const (
-		width     = 66
-		height    = 1
-		indent    = "    "
-		topString = "ARC: %s (%s) MFU: %s (%s) MRU: %s (%s)"
+		graphIndent = "      "
+		graphWidth  = 70
+		graphNote   = "('F': MFU size  'R': MRU size  'O': Other)\n\n"
 	)
 
-	var line = indent + "+" + strings.Repeat("-", width-2) + "+"
-	var arcStats = make(map[string]string)
+	var (
+		arcStats = make(map[string]string)
+		line     = graphIndent + "+" + strings.Repeat("-", graphWidth-2) + "+"
+		bar      = graphIndent + "|%s%s%s%s|\n"
+		infoLine = graphIndent + "ARC: %s/%s (%s)  MFU: %s  MRU: %s"
+	)
 
 	procSection("arcstats", arcStats)
 
+	arcSize := arcStats["size"]
+	arcMaxSize := arcStats["c_max"]
+	mfuSize := arcStats["mfu_size"]
+	mruSize := arcStats["mru_size"]
+	arcPerc := fPerc(arcStats["size"], arcStats["c_max"])
+
+	mfuBytes := stringToUint64(mfuSize)
+	mruBytes := stringToUint64(mruSize)
+	arcMaxBytes := stringToUint64(arcMaxSize)
+	otherBytes := stringToUint64(arcSize) - (mfuBytes + mruBytes)
+
+	mfuChars := strings.Repeat("F", int((mfuBytes*graphWidth)/arcMaxBytes))
+	mruChars := strings.Repeat("R", int((mruBytes*graphWidth)/arcMaxBytes))
+	otherChars := strings.Repeat("O", int((otherBytes*graphWidth)/arcMaxBytes))
+
+	whiteSpace := graphWidth - 2 - (len(mfuChars) + len(mruChars) + len(otherChars))
+
+	statusLine := fmt.Sprintf(infoLine, fBytes(arcSize), fBytes(arcMaxSize), arcPerc,
+		fBytes(mfuSize), fBytes(mruSize))
+	offsetStatusLine := (graphWidth - (len(statusLine)) + len(graphIndent)) / 2
+	paddingStatusLine := strings.Repeat(" ", offsetStatusLine)
+
+	offsetInfoLine := (graphWidth - (len(infoLine)) + len(graphIndent)) / 2
+	paddingInfoLine := strings.Repeat(" ", offsetInfoLine)
+
+	fmt.Printf("\n%s%s", paddingStatusLine, statusLine)
+	fmt.Printf("\n%s\n", line)
+	fmt.Printf(bar, mfuChars, mruChars, otherChars, strings.Repeat(" ", whiteSpace))
 	fmt.Println(line)
-	fmt.Println("TODO print graphic")
-	fmt.Println(line)
+	fmt.Printf("%s%s", paddingInfoLine, graphNote)
+
 }
 
 // printHeader prints the title with the date and time
@@ -546,12 +577,13 @@ func main() {
 
 	flag.Parse()
 	getKstats(kstats)
-	printHeader()
 
 	if *OptPrintGraphic {
 		printGraphic()
 		os.Exit(0)
 	}
+
+	printHeader()
 
 	if *OptPrintRaw {
 		printRawData()
