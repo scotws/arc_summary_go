@@ -7,6 +7,10 @@ machines with the ZFS file system to examine the ARC cache systems. It was
 written as an experiment to gain experience with Go with a real-world problem
 and gain a deeper understanding of the original code. 
 
+Also, two new features were added: A "-r" option to dump all statistics in a
+minimally formatted form; and "-g" to create a small graphic for a quick
+overview.
+
 Currently, the program is about 80 percent complete. Missing are the "boring
 parts" - the acutal breakout of various statistics. Though I might finish them
 in the future, I figure that I have learned most of what I can from this
